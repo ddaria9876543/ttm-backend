@@ -1,8 +1,8 @@
 from typing import Optional, List
-from datetime import date
+from datetime import date, datetime
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, and_
+from sqlalchemy import select, and_, update
 from sqlalchemy.orm import selectinload
 
 from app.database import get_db
@@ -116,6 +116,78 @@ async def delete_task(task_id: int, db: AsyncSession = Depends(get_db)):
         raise HTTPException(status_code=404, detail="Задача не найдена")
     await db.delete(task)
     await db.commit()
+
+
+# ─── Иерархия задач ───────────────────────────────────────────
+@router.get("/{task_id}/tree", response_model=TaskWithChildren)
+async def get_task_tree(task_id: int, db: AsyncSession = Depends(get_db)):
+    """Возвращает задачу со всей цепочкой дочерних: год→квартал→месяц→неделя."""
+
+    # Загружаем все задачи дерева рекурсивно
+    async def load_with_children(tid: int) -> Task:
+        stmt = (
+            select(Task)
+            .options(
+                selectinload(Task.assignee),
+                selectinload(Task.department),
+            )
+            .where(Task.id == tid)
+        )
+        result = await db.execute(stmt)
+        task = result.scalar_one_or_none()
+        if not task:
+            return None
+
+        # Загружаем прямых детей
+        children_stmt = select(Task).where(Task.parent_task_id == tid)
+        children_result = await db.execute(children_stmt)
+        children = children_result.scalars().all()
+
+        # Рекурсивно загружаем детей каждого ребёнка
+        task.children = []
+        for child in children:
+            loaded_child = await load_with_children(child.id)
+            if loaded_child:
+                task.children.append(loaded_child)
+
+        return task
+
+    task = await load_with_children(task_id)
+    if not task:
+        raise HTTPException(status_code=404, detail="Задача не найдена")
+    return task
+
+
+# ─── Автопометка просроченных ─────────────────────────────────
+@router.post("/mark-overdue", tags=["Tasks"])
+async def mark_overdue(db: AsyncSession = Depends(get_db)):
+    """Помечает как overdue все задачи у которых прошёл дедлайн.
+    Вызывай периодически (например раз в час) или перед загрузкой дашборда."""
+    today = date.today()
+
+    # Находим задачи которые нужно пометить
+    stmt = select(Task).where(
+        and_(
+            Task.deadline < today,
+            Task.status.notin_([TaskStatus.done, TaskStatus.overdue])
+        )
+    )
+    result = await db.execute(stmt)
+    tasks = result.scalars().all()
+
+    count = 0
+    for task in tasks:
+        db.add(TaskHistory(
+            task_id=task.id,
+            field_name="status",
+            old_value=task.status.value,
+            new_value=TaskStatus.overdue.value,
+        ))
+        task.status = TaskStatus.overdue
+        count += 1
+
+    await db.commit()
+    return {"marked_overdue": count, "updated_at": datetime.utcnow()}
 
 
 # ─── Комментарии ──────────────────────────────────────────────

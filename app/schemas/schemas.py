@@ -76,7 +76,9 @@ class TaskOut(BaseModel):
 
 
 class TaskWithChildren(TaskOut):
-    children: List["TaskOut"] = []
+    children: List["TaskWithChildren"] = []
+
+TaskWithChildren.model_rebuild()
 
 
 # ─── Comment ──────────────────────────────────────────────────
