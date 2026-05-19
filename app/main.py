@@ -12,7 +12,12 @@ app = FastAPI(
 # CORS — фронтенд сможет делать запросы с любого origin (для хакатона ок)
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=[
+        "*",
+        "http://localhost:3000",
+        "http://localhost:3001",
+        "http://localhost:3002",
+    ],
     allow_methods=["*"],
     allow_headers=["*"],
 )
