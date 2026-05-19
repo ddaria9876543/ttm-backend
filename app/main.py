@@ -1,7 +1,7 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.routers import tasks, dashboard, users
+from app.routers import tasks, dashboard, users, ai
 
 app = FastAPI(
     title="ТТМ — Система управления задачами",
@@ -20,6 +20,7 @@ app.add_middleware(
 app.include_router(tasks.router)
 app.include_router(dashboard.router)
 app.include_router(users.router)
+app.include_router(ai.router)
 
 
 @app.get("/", tags=["Health"])
